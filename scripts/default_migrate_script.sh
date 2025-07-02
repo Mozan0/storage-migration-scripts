@@ -61,17 +61,20 @@ if [[ -z "$API_URL" || -z "$API_KEY" || -z "$CONCURRENCY" || -z "$FOLDER_NAME" ]
   exit 1
 fi
 
-# Get all items (assuming non-paginated or paginated with loop)
-echo "Fetching objects from API..."
-OBJECTS=$(curl -s -H "Authorization: apikey $API_KEY" "$API_URL/storage?paginate=false")
+SKIP=0
+LIMIT=$CONCURRENCY
 
-count=$(echo "$OBJECTS" | jq length)
-echo "Found $count objects."
+while true; do
+  echo "Fetching objects from $SKIP to $((SKIP + LIMIT - 1))..."
+  OBJECTS=$(curl -s -H "Authorization: apikey $API_KEY" "$API_URL/storage?limit=$LIMIT&skip=$SKIP")
 
-# Batched processing
-seq 0 $((CONCURRENCY)) $((count - 1)) | while read -r START; do
-  echo "Processing batch from $START to $((START + CONCURRENCY - 1))..."
-  for i in $(seq $START $((START + CONCURRENCY - 1))); do
+  count=$(echo "$OBJECTS" | jq length)
+  if [[ "$count" == "0" ]]; then
+    echo "No more objects to process."
+    break
+  fi
+
+  for i in $(seq 0 $((count - 1))); do
     OBJECT=$(echo "$OBJECTS" | jq -r ".[$i]")
     [[ "$OBJECT" == "null" ]] && continue
 
@@ -88,6 +91,7 @@ seq 0 $((CONCURRENCY)) $((count - 1)) | while read -r START; do
       echo "Skipping: $OLD_PATH not found"
     fi
   done
+  SKIP=$((SKIP + count))
 done
 
 echo "Migration completed."
