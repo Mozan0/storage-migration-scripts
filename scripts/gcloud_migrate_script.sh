@@ -52,56 +52,75 @@ API_URL=""
 API_KEY=""
 BUCKET_NAME=""
 GCS_FOLDER=""
+CONCURRENCY=""
 
 print_usage() {
-  echo "Usage: $0 --api-url=URL --apikey=KEY --bucket=BUCKET_NAME [--gcs-folder=prefix]"
+  echo "Usage: $0 --api-url=URL --apikey=KEY --bucket=BUCKET_NAME --concurrency=N [--gcs-folder=prefix]"
   exit 1
 }
 
+# Parse args
 for ARG in "$@"; do
   case $ARG in
     --api-url=*) API_URL="${ARG#*=}" ;;
     --apikey=*) API_KEY="${ARG#*=}" ;;
     --bucket=*) BUCKET_NAME="${ARG#*=}" ;;
     --gcs-folder=*) GCS_FOLDER="${ARG#*=}" ;;
+    --concurrency=*) CONCURRENCY="${ARG#*=}" ;;
     *) echo "Unknown option: $ARG"; print_usage ;;
   esac
 done
 
-if [[ -z "$API_URL" || -z "$API_KEY" || -z "$BUCKET_NAME" ]]; then
+if [[ -z "$API_URL" || -z "$API_KEY" || -z "$BUCKET_NAME" || -z "$CONCURRENCY" ]]; then
   echo "Missing required arguments."
   print_usage
 fi
 
-OBJECTS_JSON=$(curl -sSL -H "apikey: $API_KEY" "$API_URL/storage?limit=10000")
-TOTAL_OBJECTS=$(echo "$OBJECTS_JSON" | jq '. | length')
+SKIP=0
+LIMIT=$CONCURRENCY
 
-echo "Found $TOTAL_OBJECTS objects."
+while true; do
+  echo "Fetching objects from $SKIP to $((SKIP + LIMIT - 1))..."
 
-for (( i=0; i < TOTAL_OBJECTS; i++ )); do
-  obj=$(echo "$OBJECTS_JSON" | jq -c ".[$i]")
-  ID=$(echo "$obj" | jq -r '._id')
-  NAME=$(echo "$obj" | jq -r '.name')
+  OBJECTS_JSON=$(curl -sSL -H "apikey: $API_KEY" "$API_URL/storage?limit=$LIMIT&skip=$SKIP")
 
-  OLD_NAME="$ID"
-  NEW_NAME="$NAME"
-
-  if [[ -n "$GCS_FOLDER" ]]; then
-    OLD_NAME="${GCS_FOLDER}/${OLD_NAME}"
-    NEW_NAME="${GCS_FOLDER}/${NEW_NAME}"
+  COUNT=$(echo "$OBJECTS_JSON" | jq 'length')
+  if [[ "$COUNT" == "0" ]]; then
+    echo "No more objects to process."
+    break
   fi
 
-  echo "[$((i+1))/$TOTAL_OBJECTS] Copying gs://$BUCKET_NAME/$OLD_NAME to gs://$BUCKET_NAME/$NEW_NAME"
-  if gcloud storage objects copy "gs://$BUCKET_NAME/$OLD_NAME" "gs://$BUCKET_NAME/$NEW_NAME"; then
-    echo "Copy successful, deleting old object..."
-    if gcloud storage objects delete "gs://$BUCKET_NAME/$OLD_NAME"; then
-      echo "Deleted gs://$BUCKET_NAME/$OLD_NAME"
-    else
-      echo "Warning: failed to delete old object gs://$BUCKET_NAME/$OLD_NAME"
-    fi
-  else
-    echo "Error: failed to copy gs://$BUCKET_NAME/$OLD_NAME, skipping deletion"
-  fi
+  for i in $(seq 0 $((COUNT - 1))); do
+    (
+      obj=$(echo "$OBJECTS_JSON" | jq -c ".[$i]")
+      ID=$(echo "$obj" | jq -r '._id')
+      NAME=$(echo "$obj" | jq -r '.name')
+
+      OLD_NAME="$ID"
+      NEW_NAME="$NAME"
+      if [[ -n "$GCS_FOLDER" ]]; then
+        OLD_NAME="${GCS_FOLDER}/${OLD_NAME}"
+        NEW_NAME="${GCS_FOLDER}/${NEW_NAME}"
+      fi
+
+      echo "[$((SKIP+i+1))] Copying gs://$BUCKET_NAME/$OLD_NAME to gs://$BUCKET_NAME/$NEW_NAME"
+      if gcloud storage objects copy "gs://$BUCKET_NAME/$OLD_NAME" "gs://$BUCKET_NAME/$NEW_NAME"; then
+        echo "Copy successful, deleting old object..."
+        if ! gcloud storage objects delete "gs://$BUCKET_NAME/$OLD_NAME"; then
+          echo "Warning: failed to delete old object gs://$BUCKET_NAME/$OLD_NAME"
+        fi
+      else
+        echo "Error: failed to copy gs://$BUCKET_NAME/$OLD_NAME, skipping deletion"
+      fi
+    ) &
+
+    while (( $(jobs -r -p | wc -l) >= CONCURRENCY )); do
+      wait -n
+    done
+  done
+
+  wait
+  SKIP=$((SKIP + COUNT))
 done
 
 echo "Migration completed."
