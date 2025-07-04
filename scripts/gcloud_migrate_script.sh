@@ -51,11 +51,10 @@ fi
 API_URL=""
 API_KEY=""
 BUCKET_NAME=""
-FOLDER_NAME=""
 CONCURRENCY=""
 
 print_usage() {
-  echo "Usage: $0 --api-url=URL --apikey=KEY --bucket=BUCKET_NAME --concurrency=N [--folder-name=prefix]"
+  echo "Usage: $0 --api-url=URL --apikey=KEY --bucket=BUCKET_NAME --concurrency=N"
   exit 1
 }
 
@@ -65,7 +64,6 @@ for ARG in "$@"; do
     --api-url=*) API_URL="${ARG#*=}" ;;
     --apikey=*) API_KEY="${ARG#*=}" ;;
     --bucket=*) BUCKET_NAME="${ARG#*=}" ;;
-    --folder-name=*) FOLDER_NAME="${ARG#*=}" ;;
     --concurrency=*) CONCURRENCY="${ARG#*=}" ;;
     *) echo "Unknown option: $ARG"; print_usage ;;
   esac
@@ -99,10 +97,6 @@ while true; do
 
       OLD_NAME="$ID"
       NEW_NAME="$NAME"
-      if [[ -n "$FOLDER_NAME" ]]; then
-        OLD_NAME="${FOLDER_NAME}/${OLD_NAME}"
-        NEW_NAME="${FOLDER_NAME}/${NEW_NAME}"
-      fi
 
       if gsutil cp "gs://$BUCKET_NAME/$OLD_NAME" "gs://$BUCKET_NAME/$NEW_NAME"; then
         echo "Moved gs://$BUCKET_NAME/$OLD_NAME to gs://$BUCKET_NAME/$NEW_NAME"
