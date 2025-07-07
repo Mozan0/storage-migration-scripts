@@ -98,14 +98,14 @@ while true; do
       OLD_NAME="$ID"
       NEW_NAME="$NAME"
 
-      if gsutil cp "gs://$BUCKET_NAME/$OLD_NAME" "gs://$BUCKET_NAME/$NEW_NAME"; then
-        echo "Moved gs://$BUCKET_NAME/$OLD_NAME to gs://$BUCKET_NAME/$NEW_NAME"
-        echo "removing old object gs://$BUCKET_NAME/$OLD_NAME"
-        if ! gsutil rm "gs://$BUCKET_NAME/$OLD_NAME"; then
-          echo "Warning: failed to delete old object gs://$BUCKET_NAME/$OLD_NAME"
+      if aws s3 cp "s3://$BUCKET_NAME/$OLD_NAME" "s3://$BUCKET_NAME/$NEW_NAME"; then
+        echo "Moved s3://$BUCKET_NAME/$OLD_NAME to s3://$BUCKET_NAME/$NEW_NAME"
+        echo "removing old object s3://$BUCKET_NAME/$OLD_NAME"
+        if ! aws s3 rm "s3://$BUCKET_NAME/$OLD_NAME"; then
+          echo "Warning: failed to delete old object s3://$BUCKET_NAME/$OLD_NAME"
         fi
       else
-        echo "Error: failed to copy gs://$BUCKET_NAME/$OLD_NAME, skipping deletion"
+        echo "Error: failed to copy s3://$BUCKET_NAME/$OLD_NAME, skipping deletion"
       fi
 
     ) &
